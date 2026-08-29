@@ -1,662 +1,797 @@
 # APS — Adaptive Performance Standard Agent
 
-> A secure AI execution runtime for investigating adaptive performance standards under fixed objectives and constrained authority.
+> A research-engineering system for adaptive test-time control in AI agents under fixed objectives and constrained authority.
 
-APS is a research-oriented AI systems project investigating whether an AI agent can use evidence from its own demonstrated performance to adapt the quality threshold governing future execution decisions—without modifying its objective, permissions, or security constraints.
+## Overview
 
-The project studies a distinction between:
+APS (Adaptive Performance Standard Agent) investigates a simple question:
 
-- **what an agent is required to accomplish**, and
-- **what level of execution quality the agent considers sufficient**.
+> **Can an AI agent use evidence from its own demonstrated performance to dynamically adjust what level of future performance it considers acceptable?**
 
-APS treats the first as externally defined and immutable during an execution, while allowing the second to adapt from measured outcomes.
-
-The initial research question is:
-
-> **Can demonstrated performance provide a useful control signal for adapting an AI agent's acceptance threshold and test-time computation while its objective and authority remain fixed?**
-
-APS is being developed as both an experimental platform for this question and a secure runtime architecture for studying bounded adaptation in AI agents.
-
----
-
-## 1. Motivation
-
-A common agent execution loop can be represented as:
+Most agent systems separate execution into some variation of:
 
 ```text
-Task
-  ↓
-Plan
-  ↓
-Act
-  ↓
-Observe
-  ↓
-Evaluate
-  ↓
-Accept / Retry
+Task → Generate → Evaluate → Accept / Retry
 ```
 
-The agent may evaluate its output repeatedly, but the criterion determining when an output is "good enough" is often externally specified or fixed for the duration of the system.
+The acceptance criterion is typically fixed.
 
-Consider an agent whose acceptance threshold is:
+An agent may repeatedly demonstrate that it can achieve substantially better results than its configured acceptance threshold, yet this demonstrated performance does not necessarily affect what the system accepts in the future.
+
+APS introduces an explicit adaptive variable called the **performance standard**.
+
+The system distinguishes between:
+
+- the **objective** — what the agent is required to accomplish;
+- the **performance standard** — what measured quality the system currently considers sufficient.
+
+The objective remains externally specified and immutable during execution.
+
+The performance standard may change according to measured outcomes.
+
+APS studies whether this distinction can provide a useful mechanism for controlling agent stopping behavior and test-time computation.
+
+---
+
+## Research Problem
+
+Let:
+
+- \(J\) denote the externally specified objective;
+- \(\sigma_t\) denote the performance standard at time \(t\);
+- \(Q_t\) denote the measured quality of an observed outcome.
+
+APS requires the objective to remain fixed:
+
+$$
+J_{t+1} = J_t
+$$
+
+while allowing the performance standard to adapt:
+
+$$
+\sigma_{t+1} \neq \sigma_t
+$$
+
+The central research question is:
+
+> **Can demonstrated performance provide a useful control signal for adapting an AI agent's acceptance threshold and test-time computation without changing its objective or authority?**
+
+This produces the conceptual feedback loop:
 
 ```text
-σ = 0.70
+                    ┌──────────────────────┐
+                    │ Performance Standard │
+                    │         σₜ           │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+Task → Agent → Candidate → Evaluator → Qₜ
+         ▲                        │
+         │                        │
+         └──── Accept / Retry ◄───┘
+                               │
+                               ▼
+                         Update σₜ₊₁
 ```
 
-Suppose the same system repeatedly demonstrates outcomes in the range:
+The system therefore studies:
 
-```text
-Q ≈ 0.85–0.90
-```
-
-where `Q` is a measurable outcome-quality function.
-
-A later outcome scoring `0.71` still satisfies the original threshold, despite evidence that the system has previously achieved substantially stronger outcomes.
-
-This raises a systems question:
-
-> Should demonstrated performance influence the level of performance an agent subsequently requires before terminating computation?
-
-APS investigates this question by introducing an explicit **performance standard** into the agent execution loop.
+$$
+\text{Observed Performance}
+\rightarrow
+\text{Adaptive Standard}
+\rightarrow
+\text{Execution Decision}
+\rightarrow
+\text{Future Performance}
+$$
 
 ---
 
-## 2. Objective vs. Performance Standard
+## Objective and Performance Standard
 
-The central architectural distinction in APS is between an agent's **objective** and its **performance standard**.
+APS treats the objective and performance standard as fundamentally different system variables.
 
-Let
+### Objective
 
-\[
-J
-\]
-
-denote the externally specified objective.
-
-For a given execution, APS requires:
-
-\[
-J_{t+1}=J_t
-\]
-
-The adaptive mechanism is not permitted to modify `J`.
-
-Let
-
-\[
-\sigma_t \in [0,1]
-\]
-
-denote the performance standard at time `t`.
-
-`σ_t` represents the minimum measured quality the runtime should attempt to obtain before accepting an outcome, subject to resource and policy constraints.
-
-Unlike the objective:
-
-\[
-\sigma_{t+1}
-\]
-
-may differ from:
-
-\[
-\sigma_t
-\]
-
-based on observed performance.
-
-Therefore:
-
-```text
-Objective J
-    │
-    └── What must be accomplished?
-
-Performance Standard σ
-    │
-    └── What measured quality is sufficient to stop?
-```
-
-These quantities are intentionally independent.
-
-A changing performance standard MUST NOT imply a changing objective.
-
----
-
-## 3. Research Hypothesis
-
-APS investigates the following hypothesis:
-
-> An agent's demonstrated performance can be used to adapt its future acceptance threshold, producing measurable changes in stopping behavior, outcome quality, and computational expenditure without modifying the underlying objective.
-
-The corresponding feedback loop is:
-
-\[
-(X_t,\sigma_t)
-\rightarrow
-\pi_t
-\rightarrow
-A_t
-\rightarrow
-O_t
-\rightarrow
-Q(O_t)
-\rightarrow
-(X_{t+1},\sigma_{t+1})
-\]
-
-where:
-
-| Symbol | Meaning |
-|---|---|
-| \(X_t\) | explicit execution state |
-| \(J\) | fixed externally specified objective |
-| \(\sigma_t\) | current performance standard |
-| \(\pi_t\) | execution/decision policy |
-| \(A_t\) | selected action |
-| \(O_t\) | observed outcome |
-| \(Q(O_t)\) | measured outcome quality |
-
-The hypothesis is deliberately falsifiable.
-
-APS does **not** assume that an adaptive standard will outperform a static standard.
-
-The adaptive mechanism may improve outcome quality, waste computation, become poorly calibrated, fail under distribution shift, or produce no meaningful advantage.
-
-Each is an experimentally meaningful result.
-
----
-
-## 4. Initial Standard Update Rule
-
-The first experimental controller uses:
-
-\[
-\boxed{
-\sigma_{t+1}
-=
-\sigma_t
-+
-\alpha\max(0,Q_t-\sigma_t)
-}
-\]
-
-where:
-
-- `Q_t` is measured performance,
-- `σ_t` is the current standard,
-- `α ∈ [0,1]` is the adaptation rate.
-
-If:
-
-\[
-Q_t>\sigma_t
-\]
-
-then:
-
-\[
-\sigma_{t+1}>\sigma_t
-\]
-
-and the standard partially moves toward demonstrated performance.
-
-If:
-
-\[
-Q_t\leq\sigma_t
-\]
-
-then:
-
-\[
-\sigma_{t+1}=\sigma_t
-\]
-
-for the initial controller.
-
-This rule is a **baseline mechanism**, not a claim of optimality.
-
-One purpose of APS is to determine where this simple formulation fails.
-
-Potential later controllers may investigate:
-
-- windowed performance estimates,
-- decaying standards,
-- task-conditioned standards,
-- uncertainty-aware standards,
-- difficulty-normalized standards,
-- distribution-shift-aware controllers.
-
-These mechanisms are outside the initial experiment.
-
----
-
-## 5. Behavioral Mechanism
-
-Tracking `σ` without allowing it to affect execution would not constitute adaptation.
-
-APS therefore uses the performance standard as an explicit stopping-control signal.
-
-```text
-Generate candidate
-       │
-       ▼
-Evaluate outcome
-       │
-       ▼
-      Q ≥ σ?
-      /    \
-    yes     no
-     │       │
-   accept    │
-             ▼
-       budget available?
-          /       \
-        yes        no
-         │          │
-       retry       stop
-```
-
-A higher standard can therefore cause the runtime to allocate additional test-time computation by rejecting outcomes that would previously have been accepted.
-
-This exposes a quality–compute tradeoff:
-
-\[
-\text{Outcome Quality}
-=
-f(\sigma,\text{Execution Budget},\text{Task})
-\]
-
-APS studies that tradeoff rather than assuming that higher standards are intrinsically better.
-
----
-
-## 6. Research Questions
-
-The initial system is designed to answer five questions.
-
-### RQ1 — Behavioral Effect
-
-Does an adaptive performance standard produce a measurable change in agent stopping and retry behavior?
-
-### RQ2 — Outcome Quality
-
-Does adaptation change the quality distribution of accepted outcomes?
-
-### RQ3 — Computational Cost
-
-How does adaptation affect:
-
-- model calls,
-- attempts,
-- token usage,
-- tool invocations,
-- latency,
-- execution cost?
-
-### RQ4 — Stability
-
-How does `σ` evolve over time?
-
-Does it:
-
-- converge,
-- increase gradually,
-- become excessively aggressive,
-- become poorly calibrated,
-- or create retry saturation?
-
-### RQ5 — Distribution Shift
-
-What happens when previously demonstrated performance is not representative of the current task distribution?
+The objective specifies **what must be accomplished**.
 
 For example:
 
 ```text
-easy tasks
-    ↓
-high observed scores
-    ↓
-σ increases
-    ↓
-harder tasks
-    ↓
-historical σ may become unrealistic
-    ↓
-excessive retries / compute expenditure
+Produce a correct solution to the given programming problem.
 ```
-
-This is expected to be an important limitation of globally maintained performance standards.
-
----
-
-## 7. Experimental Design
-
-The initial experiment compares:
-
-```text
-Static Standard Agent
-          vs.
-Adaptive Standard Agent
-```
-
-Both systems MUST use the same:
-
-- underlying model,
-- task sequence,
-- fixed objective,
-- evaluator,
-- tools,
-- per-attempt limits,
-- maximum execution budget,
-- generation configuration.
-
-The experimental variable is the standard controller.
-
-### Static
-
-\[
-\sigma_t=\sigma_0
-\]
-
-### Adaptive
-
-\[
-\sigma_{t+1}
-=
-\sigma_t+\alpha\max(0,Q_t-\sigma_t)
-\]
-
-This isolation is necessary to attribute behavioral differences to the adaptive-standard mechanism rather than unrelated agent modifications.
-
----
-
-## 8. Evaluation
-
-Where possible, V0 uses deterministic or mechanically verifiable evaluation.
-
-For example, in a code-generation environment:
-
-\[
-Q(O_t)
-=
-\frac{\text{hidden tests passed}}
-{\text{total hidden tests}}
-\]
-
-with:
-
-\[
-Q(O_t)\in[0,1]
-\]
-
-This is preferred over subjective model-based evaluation for the initial experiment because it improves:
-
-- reproducibility,
-- interpretability,
-- experimental control,
-- comparability between runs.
-
-Primary measurements include:
-
-| Metric | Purpose |
-|---|---|
-| Mean outcome score | overall performance |
-| Accepted outcome score | quality actually accepted |
-| Best observed score | maximum demonstrated task performance |
-| Attempts per task | retry behavior |
-| Model calls | inference expenditure |
-| Token usage | compute proxy |
-| Execution time | system cost |
-| Standard trajectory | adaptation dynamics |
-| Budget exhaustion rate | pathological retry behavior |
-
-The primary analysis is expected to examine the **quality–compute frontier**, rather than quality alone.
-
----
-
-# Secure Runtime Architecture
-
-APS is not intended to rely on prompt instructions as its security boundary.
-
-The system is designed around a separate trusted runtime responsible for enforcing objectives, authority, resource limits, state transitions, and adaptive-standard constraints.
-
-The target architecture separates three concerns:
-
-```text
-┌───────────────────────────────────────────┐
-│              RESEARCH PLANE               │
-│                  Python                   │
-│                                           │
-│ experiments · benchmarks · analysis       │
-│ model adapters · research policies        │
-└─────────────────────┬─────────────────────┘
-                      │
-              typed interface
-                      │
-                      ▼
-┌───────────────────────────────────────────┐
-│              CONTROL PLANE                │
-│                   Rust                    │
-│                                           │
-│ objective integrity                       │
-│ execution state machine                   │
-│ standard controller                       │
-│ policy enforcement                        │
-│ capability enforcement                    │
-│ budget management                         │
-│ audit/event generation                    │
-└─────────────────────┬─────────────────────┘
-                      │
-              constrained execution
-                      │
-                      ▼
-┌───────────────────────────────────────────┐
-│             EXECUTION PLANE               │
-│              Rust / C++                   │
-│                                           │
-│ evaluator execution                       │
-│ process/resource isolation                │
-│ native execution primitives               │
-│ sandbox integration                       │
-└─────────────────────┬─────────────────────┘
-                      │
-                      ▼
-                 Environment
-```
-
-Language choice is architectural rather than cosmetic.
-
-Python is used where research iteration and ML ecosystem integration are valuable.
-
-Rust is intended for security-sensitive control logic because APS requires strong state, authority, and memory-safety guarantees.
-
-C++ is reserved for native or performance-sensitive components where its ecosystem or systems-level interoperability provides a concrete advantage. Security-sensitive functionality is not moved into C++ merely for implementation complexity.
-
----
-
-## 9. Security Model
-
-APS begins from a simple assumption:
-
-> **Model output is untrusted data, not runtime authority.**
-
-An LLM may propose an action.
-
-It does not receive direct authority to perform arbitrary state transitions or system operations.
-
-Conceptually:
-
-```text
-LLM output
-    │
-    ▼
-Structured parser
-    │
-    ▼
-Schema validation
-    │
-    ▼
-Policy enforcement
-    │
-    ▼
-Capability check
-    │
-    ▼
-Budget check
-    │
-    ▼
-Execution boundary
-```
-
-The runtime, rather than the model, determines whether an operation is permitted.
-
----
-
-## 10. Trust Boundaries
-
-The intended trust model is:
-
-### Trusted Computing Base
-
-- runtime state machine,
-- objective integrity mechanism,
-- performance-standard controller,
-- policy engine,
-- capability enforcement,
-- budget controller,
-- security-critical audit logic.
-
-### Partially Trusted
-
-- evaluators,
-- model adapters,
-- native execution services.
-
-These components receive narrowly scoped authority.
-
-### Untrusted
-
-- model-generated content,
-- generated code,
-- external task content,
-- retrieved content,
-- tool output,
-- benchmark input.
-
-Untrusted content must not directly control privileged runtime state.
-
----
-
-## 11. Security Invariants
-
-APS is designed around explicit invariants.
-
-### Invariant 1 — Objective Integrity
 
 During an execution:
 
-\[
-\boxed{J_{t+1}=J_t}
-\]
+$$
+J_{t+1} = J_t
+$$
 
-The adaptive mechanism cannot rewrite the execution objective.
+The adaptive mechanism is not permitted to modify the objective.
 
-### Invariant 2 — Bounded Standard
+### Performance Standard
 
-\[
-\boxed{0\leq\sigma_t\leq1}
-\]
+The performance standard specifies **what measured level of execution quality is currently considered sufficient**.
 
-Invalid standard transitions must be rejected by the runtime.
+For example:
 
-### Invariant 3 — Adaptive Performance Does Not Grant Authority
+$$
+\sigma_t = 0.70
+$$
 
-\[
+means that an outcome with measured quality below `0.70` should not normally be accepted while additional execution budget remains.
+
+The distinction is:
+
+```text
+Objective J
+    │
+    └── What should be achieved?
+
+Performance Standard σ
+    │
+    └── How good must the current result be before stopping?
+```
+
+APS adapts the second quantity, not the first.
+
+---
+
+## Hypothesis
+
+Suppose an agent begins with:
+
+$$
+\sigma_0 = 0.60
+$$
+
+but repeatedly demonstrates outcomes such as:
+
+```text
+0.72
+0.81
+0.84
+0.88
+```
+
+A static system continues using:
+
+$$
+\sigma = 0.60
+$$
+
+and may therefore accept a future result scoring `0.61`.
+
+APS investigates whether demonstrated performance should instead influence future acceptance decisions.
+
+The hypothesis is:
+
+> **An adaptive performance standard can cause an agent to become less willing to accept outcomes below previously demonstrated levels of performance, potentially improving accepted solution quality at the cost of additional computation.**
+
+This hypothesis is not assumed to be correct.
+
+APS is designed to test it.
+
+---
+
+## APS-V0 Standard Controller
+
+The initial adaptive controller is intentionally simple.
+
+For measured performance \(Q_t\):
+
+$$
+\sigma_{t+1}
+=
+\sigma_t
++
+\alpha \max(0, Q_t - \sigma_t)
+$$
+
+where:
+
+- \(Q_t\) is measured outcome quality;
+- \(\sigma_t\) is the current performance standard;
+- \(\alpha \in [0,1]\) is the adaptation rate.
+
+### Performance exceeds the current standard
+
+If:
+
+$$
+Q_t > \sigma_t
+$$
+
+then:
+
+$$
+\sigma_{t+1} > \sigma_t
+$$
+
+The standard moves partially toward the demonstrated performance.
+
+For example, given:
+
+$$
+\sigma_t = 0.60
+$$
+
+$$
+Q_t = 0.80
+$$
+
+$$
+\alpha = 0.25
+$$
+
+the next standard becomes:
+
+$$
+\sigma_{t+1}
+=
+0.60 + 0.25(0.80 - 0.60)
+=
+0.65
+$$
+
+### Performance does not exceed the current standard
+
+If:
+
+$$
+Q_t \leq \sigma_t
+$$
+
+then:
+
+$$
+\sigma_{t+1} = \sigma_t
+$$
+
+APS-V0 therefore implements a monotonic standard.
+
+This is a baseline controller, not a claim that monotonic adaptation is optimal.
+
+Determining where this controller fails is part of the research.
+
+---
+
+## How the Standard Changes Behavior
+
+A performance standard is only meaningful if it affects execution.
+
+APS-V0 uses \(\sigma_t\) as a stopping threshold:
+
+```text
+                 Generate Candidate
+                         │
+                         ▼
+                     Evaluate
+                         │
+                         ▼
+                       Qₜ
+                         │
+                         ▼
+                    Qₜ ≥ σₜ ?
+                    /       \
+                  YES        NO
+                   │          │
+                   ▼          ▼
+                ACCEPT    Budget left?
+                            /     \
+                          YES      NO
+                           │        │
+                           ▼        ▼
+                         RETRY     STOP
+```
+
+Increasing \(\sigma_t\) therefore changes how readily the system accepts a result.
+
+Consider:
+
+```text
+Candidate quality = 0.74
+```
+
+For a static agent:
+
+```text
+σ = 0.70
+
+0.74 ≥ 0.70
+→ Accept
+```
+
+For an adaptive agent whose standard has reached `0.82`:
+
+```text
+σ = 0.82
+
+0.74 < 0.82
+→ Retry
+```
+
+The model may be identical.
+
+The task may be identical.
+
+The objective may be identical.
+
+What changed is the execution controller's willingness to stop.
+
+---
+
+## Adaptive Test-Time Control
+
+APS can therefore be interpreted as an adaptive test-time control system.
+
+```text
+Historical Outcomes
+        │
+        ▼
+Measured Performance
+        │
+        ▼
+Performance Standard σ
+        │
+        ▼
+Acceptance Decision
+        │
+   ┌────┴────┐
+   ▼         ▼
+ Accept     Retry
+              │
+              ▼
+       Additional Compute
+```
+
+The important research problem is consequently not simply whether a larger \(\sigma\) produces better answers.
+
+APS investigates the relationship:
+
+$$
+\text{Outcome Quality}
+=
+f(
+\text{Performance Standard},
+\text{Task},
+\text{Compute Budget}
+)
+$$
+
+A useful adaptive controller should improve the allocation of computation rather than merely consume more of it.
+
+---
+
+## Experimental Design
+
+APS-V0 compares two agents.
+
+### Static Standard Agent
+
+The static agent maintains:
+
+$$
+\sigma_t = \sigma_0
+$$
+
+for all \(t\).
+
+### Adaptive Standard Agent
+
+The adaptive agent maintains:
+
+$$
+\sigma_{t+1}
+=
+\sigma_t
++
+\alpha \max(0,Q_t-\sigma_t)
+$$
+
+Both agents must use the same:
+
+- underlying model;
+- task sequence;
+- objective;
+- evaluator;
+- available tools;
+- generation configuration;
+- maximum attempts;
+- execution budget.
+
+The independent variable is:
+
+```text
+Performance-standard policy
+```
+
+Everything else should remain controlled.
+
+---
+
+## What APS Measures
+
+APS does not evaluate performance using outcome quality alone.
+
+### Outcome Quality
+
+Mean measured quality:
+
+$$
+\bar{Q}
+$$
+
+### Accepted Quality
+
+Quality of the solutions the system ultimately accepts.
+
+This determines whether adaptation actually causes the agent to settle for stronger outcomes.
+
+### Best Observed Performance
+
+$$
+Q_{\max}
+$$
+
+This records demonstrated performance.
+
+It should not automatically be interpreted as general agent capability.
+
+### Attempts
+
+How many attempts are required before acceptance or budget exhaustion?
+
+### Model Calls
+
+How much inference is consumed?
+
+### Token Usage
+
+How does adaptation affect token expenditure?
+
+### Latency
+
+Does increased execution quality introduce unacceptable latency?
+
+### Budget Exhaustion
+
+How frequently does the adaptive standard become difficult or impossible to satisfy?
+
+### Standard Trajectory
+
+Track:
+
+$$
+\sigma_0,\sigma_1,\sigma_2,\ldots,\sigma_n
+$$
+
+to study the dynamics of adaptation.
+
+---
+
+## Quality–Compute Tradeoff
+
+APS does not assume:
+
+```text
+higher quality = better system
+```
+
+If an adaptive agent produces:
+
+```text
++2% accepted quality
++150% inference cost
+```
+
+the mechanism may not be practically useful.
+
+The primary systems tradeoff is therefore:
+
+$$
+\boxed{
+\text{Outcome Quality}
+\quad \text{vs.} \quad
+\text{Computational Cost}
+}
+$$
+
+A successful adaptive controller should move the system toward a better quality–compute frontier.
+
+---
+
+# Security Model
+
+APS allows part of the execution policy to adapt.
+
+That creates a second research-engineering problem:
+
+> **How can an AI system adapt its execution behavior without gaining the ability to modify its objective, authority, security policy, or resource limits?**
+
+APS addresses this by separating the model from the trusted execution runtime.
+
+The foundational rule is:
+
+> **Model output is untrusted data, not runtime authority.**
+
+---
+
+## Target Architecture
+
+APS is designed around three architectural planes.
+
+```text
+┌─────────────────────────────────────────────┐
+│               RESEARCH PLANE                │
+│                   Python                    │
+│                                             │
+│  Experiments                                │
+│  Benchmarks                                 │
+│  Analysis                                   │
+│  Model adapters                             │
+└──────────────────────┬──────────────────────┘
+                       │
+                  Typed interface
+                       │
+                       ▼
+┌─────────────────────────────────────────────┐
+│                CONTROL PLANE                │
+│                    Rust                     │
+│                                             │
+│  Objective integrity                       │
+│  Execution state machine                    │
+│  Performance-standard controller            │
+│  Budget enforcement                         │
+│  Capability enforcement                     │
+│  Policy enforcement                         │
+│  Audit events                               │
+└──────────────────────┬──────────────────────┘
+                       │
+                Restricted execution
+                       │
+                       ▼
+┌─────────────────────────────────────────────┐
+│               EXECUTION PLANE               │
+│                 Rust / C++                  │
+│                                             │
+│  Sandboxed evaluation                       │
+│  Resource isolation                         │
+│  Native execution primitives                │
+│  Generated-code execution                   │
+└──────────────────────┬──────────────────────┘
+                       │
+                       ▼
+                  Environment
+```
+
+Python is used for research iteration and model integration.
+
+Rust forms the primary trusted control plane.
+
+C++ is reserved for components where native execution, interoperability, or performance requirements justify its use.
+
+The use of multiple languages is an architectural decision, not a project objective.
+
+---
+
+## Trust Model
+
+### Trusted
+
+The intended trusted computing base includes:
+
+```text
+APS Runtime
+Objective Guard
+Standard Controller
+Budget Controller
+Policy Engine
+Capability Enforcement
+Security-critical Audit Logic
+```
+
+### Partially Trusted
+
+```text
+Model adapters
+Evaluators
+Native execution services
+```
+
+These components receive constrained interfaces and authority.
+
+### Untrusted
+
+```text
+LLM output
+Generated code
+Task input
+External content
+Retrieved content
+Tool output
+Benchmark content
+```
+
+Untrusted data must not directly mutate privileged runtime state.
+
+---
+
+## Security Invariants
+
+APS defines several initial runtime invariants.
+
+### APS-INV-001 — Objective Integrity
+
+Once execution begins:
+
+$$
+J_{t+1} = J_t
+$$
+
+The adaptive mechanism cannot modify the objective.
+
+### APS-INV-002 — Valid Outcome Score
+
+$$
+0 \leq Q_t \leq 1
+$$
+
+Invalid evaluator results must not enter the standard controller.
+
+### APS-INV-003 — Bounded Performance Standard
+
+$$
+0 \leq \sigma_t \leq 1
+$$
+
+Invalid standard transitions must be rejected.
+
+### APS-INV-004 — Controlled Standard Mutation
+
+Only validated evaluation outcomes may trigger an authorized standard transition.
+
+Model-generated content cannot directly assign \(\sigma_t\).
+
+### APS-INV-005 — Budget Dominance
+
+The performance standard cannot override execution limits.
+
+```text
+Q < σ
+AND
+budget exhausted
+        │
+        ▼
+      STOP
+```
+
+A high standard cannot produce unlimited retries.
+
+### APS-INV-006 — Adaptive Performance ≠ Adaptive Authority
+
+The central security property of APS is:
+
+$$
 \boxed{
 \text{Adaptive Performance}
 \not\Rightarrow
 \text{Adaptive Authority}
 }
-\]
+$$
 
-Increasing `σ` cannot grant:
+Increasing the performance standard must not grant:
 
-- additional permissions,
-- new tools,
-- arbitrary filesystem access,
-- unrestricted network access,
-- larger execution budgets,
-- objective-modification authority.
+- additional permissions;
+- additional tools;
+- arbitrary filesystem access;
+- unrestricted network access;
+- larger resource ceilings;
+- objective modification;
+- security-policy modification.
 
-### Invariant 4 — Budget Dominates Standard
+### APS-INV-007 — Security Policy Dominance
 
-A performance standard cannot override resource limits.
-
-```text
-Q < σ
-+
-budget exhausted
-        ↓
-STOP
-```
-
-not:
+Performance optimization cannot override an enforced security decision.
 
 ```text
-unbounded retry
+Security constraint
+        >
+Performance optimization
 ```
-
-### Invariant 5 — Model Output Is Non-Authoritative
-
-Generated model content cannot directly mutate privileged runtime state.
-
-### Invariant 6 — Security Policy Dominates Optimization
-
-If performance optimization conflicts with an enforced security policy, the security policy wins.
 
 ---
 
-## 12. Objective Integrity
+## Runtime Authority
 
-The fixed-objective requirement should be enforced structurally rather than solely through prompting.
+The model may propose actions.
 
-An execution may conceptually bind:
+The runtime authorizes them.
 
 ```text
-Objective specification
-        ↓
-Canonical representation
-        ↓
-Cryptographic digest
-        ↓
-Objective identity
-        ↓
-Execution context
+              LLM
+               │
+        Proposed Action
+               │
+               ▼
+        Structured Parser
+               │
+               ▼
+       Schema Validation
+               │
+               ▼
+        Policy Engine
+               │
+               ▼
+       Capability Check
+               │
+               ▼
+          Budget Check
+               │
+               ▼
+      Execution Boundary
 ```
 
-Subsequent state transitions reference the bound objective.
+The model therefore does not directly control:
 
-The adaptive controller receives no authority to replace it.
+```text
+objective
+performance standard
+permissions
+budget
+runtime state
+security policy
+```
 
-This allows the experimental claim:
-
-\[
-J_{t+1}=J_t
-\]
-
-to correspond to a runtime invariant rather than an instruction given to the language model.
+This boundary is intended to remain valid even when model output is adversarial.
 
 ---
 
-## 13. Auditing and Reproducibility
+## Threat Model
 
-Security and experimental reproducibility both require observable state transitions.
+APS will explicitly test attacks against its execution architecture.
 
-APS therefore intends to expose structured execution events such as:
+Initial threat categories include:
+
+### Objective Manipulation
+
+Untrusted content attempts to modify or replace the fixed execution objective.
+
+### Standard Manipulation
+
+The model attempts to directly lower, raise, reset, or otherwise manipulate \(\sigma\).
+
+### Evaluator Manipulation
+
+Generated output attempts to attack the evaluation mechanism rather than solve the task.
+
+### Budget Escalation
+
+The agent attempts to obtain additional computation because its current outcome remains below \(\sigma\).
+
+### Capability Escalation
+
+The model attempts to access tools or resources outside its granted capability set.
+
+### Generated-Code Escape
+
+Model-generated code attempts to escape its execution boundary.
+
+### Audit Manipulation
+
+A component attempts to modify or suppress execution history.
+
+These categories will evolve with the implementation and adversarial testing.
+
+---
+
+## Auditability
+
+APS runtime decisions should be inspectable and reproducible.
+
+The runtime is expected to emit structured events such as:
 
 ```text
 RunStarted
@@ -665,343 +800,283 @@ TaskReceived
 CandidateGenerated
 EvaluationStarted
 EvaluationCompleted
+StandardUpdated
 CandidateRejected
 RetryAuthorized
-StandardUpdated
 CandidateAccepted
 BudgetExhausted
 RunCompleted
 ```
 
-Relevant event metadata may include:
+An event may contain:
 
 ```text
 run_id
 task_id
 objective_id
-policy_version
 attempt
 score
 sigma_before
 sigma_after
 remaining_budget
+policy_version
 timestamp
 ```
 
-This should make it possible to reconstruct why the runtime accepted, rejected, retried, or terminated an execution.
+This provides evidence for both experimental analysis and security investigation.
 
-Future versions may investigate tamper-evident or hash-chained audit traces.
-
----
-
-## 14. Threat Model
-
-The initial threat model considers failures such as:
-
-### Objective Manipulation
-
-A model or untrusted task attempts to alter the objective governing execution.
-
-### Standard Manipulation
-
-Untrusted content attempts to directly modify `σ` or influence it outside the authorized evaluation path.
-
-### Budget Escalation
-
-The agent attempts to obtain additional execution resources because its current performance remains below `σ`.
-
-### Unauthorized Tool Use
-
-Generated content attempts to invoke capabilities that were not granted to the execution.
-
-### Generated-Code Escape
-
-Model-generated code attempts to escape its execution environment or access unauthorized resources.
-
-### Evaluation Manipulation
-
-An outcome attempts to interfere with the evaluator rather than solve the assigned task.
-
-### Audit Tampering
-
-A component attempts to remove or alter evidence of previous state transitions.
-
-These threats will be refined as implementation exposes concrete attack surfaces.
+Future versions may investigate tamper-evident execution traces.
 
 ---
 
-## 15. System Philosophy
+# Known Research Risks
 
-APS intentionally separates adaptation from authority.
+APS begins with several known weaknesses rather than hiding them.
 
-The system may adapt:
+## Historical Performance Is Not General Capability
 
-```text
-how demanding its acceptance criterion is
-```
+A score of:
 
-but not independently adapt:
+$$
+Q = 0.95
+$$
 
-```text
-what its objective is
-what permissions it possesses
-what security policies apply
-what resource ceiling it receives
-```
+on one task does not establish that the agent can achieve comparable performance on another task.
 
-This distinction is fundamental to the project.
+Therefore:
 
-```text
-               ADAPTIVE
-                  │
-          performance standard
-                  │
-                  ▼
-Fixed ─────► Secure Runtime ─────► Execution
-Objective          │
-                   ▼
-              Policy / Budget /
-              Capability Bounds
-```
+$$
+C_t = \max(C_{t-1},Q_t)
+$$
 
-The desired property is bounded adaptation:
+is **not** treated as a reliable general capability estimate.
 
-\[
-\boxed{
-\text{adaptive execution policy}
-\;\land\;
-\text{fixed objective}
-\;\land\;
-\text{fixed authority boundary}
-}
-\]
+APS-V0 will initially use controlled task distributions before investigating task-conditioned standards.
 
 ---
 
-## 16. Project Structure
+## Distribution Shift
 
-The target repository structure is:
+Consider:
 
 ```text
-APS/
-│
-├── runtime/                 # trusted Rust control plane
-│
-├── sandbox/                 # isolated/native execution components
-│
-├── research/                # Python experimental plane
-│
-├── proto/                   # cross-language contracts
-│
-├── benchmarks/              # controlled experimental tasks
-│
-├── configs/                 # experiment configuration
-│
-├── results/                 # generated experimental results
-│
-├── docs/
-│   ├── architecture.md
-│   ├── threat-model.md
-│   ├── research.md
-│   └── adr/
-│
-├── tests/
-│   ├── integration/
-│   ├── security/
-│   └── e2e/
-│
-├── README.md
-└── SECURITY.md
+Easy Tasks
+    │
+    ▼
+High Q
+    │
+    ▼
+σ increases
+    │
+    ▼
+Hard Tasks
+    │
+    ▼
+Q falls below historical σ
+    │
+    ▼
+Excessive retries
 ```
 
-The repository will be developed incrementally. This structure represents architectural boundaries, not a requirement to implement every subsystem before experimentation begins.
+This may expose a fundamental limitation of globally maintained performance standards.
+
+Potential future work includes task-conditioned or difficulty-normalized standards.
 
 ---
 
-## 17. Development Strategy
+## Monotonicity
 
-APS follows a vertical-slice development strategy.
+APS-V0 does not decrease \(\sigma\).
 
-The first useful system should establish:
+That means:
 
-```text
-Task
-  ↓
-Experiment client
-  ↓
-Secure runtime
-  ├── binds objective
-  ├── maintains σ
-  ├── enforces budget
-  └── controls acceptance/retry
-  ↓
-Evaluator
-  ↓
-Measured Q
-  ↓
-Runtime transition
-  ↓
-Structured audit event
-```
+$$
+\sigma_{t+1} \geq \sigma_t
+$$
 
-Only after this path is functional should additional complexity be introduced.
+for every update.
 
-The project explicitly avoids building infrastructure without an experimental or security requirement.
+This may produce poor calibration over long or heterogeneous task sequences.
+
+The behavior is intentional in V0 because it creates a simple, testable baseline.
 
 ---
 
-## 18. Non-Goals
+## Evaluator Dependence
 
-The initial system does not attempt to implement:
+APS adapts according to \(Q\).
 
-- autonomous goal generation,
-- unrestricted self-modification,
-- model weight updates,
-- reinforcement-learning training,
-- unconstrained long-term autonomy,
-- multi-agent coordination,
-- arbitrary tool ecosystems,
-- self-assigned permissions,
-- self-expanded execution budgets.
+Therefore:
 
-APS studies a much narrower mechanism:
+> A performance controller cannot be more reliable than the signal used to evaluate performance.
 
-\[
+A vulnerable, noisy, or poorly specified evaluator can cause the system to adapt toward the wrong behavior.
+
+Evaluator integrity is therefore both a research problem and a security boundary.
+
+---
+
+# Research Roadmap
+
+APS development is intentionally incremental.
+
+```text
+APS-V0
+│
+├── Static vs adaptive standard
+├── Deterministic evaluation
+├── Fixed objective
+├── Fixed execution budget
+└── Quality–compute measurement
+        │
+        ▼
+APS-V1
+│
+├── Windowed standards
+├── Decay mechanisms
+└── Distribution-shift experiments
+        │
+        ▼
+APS-V2
+│
+├── Task-conditioned standards
+└── Difficulty estimation
+        │
+        ▼
+APS-V3
+│
+├── Uncertainty-aware adaptation
+└── Capability estimation
+        │
+        ▼
+APS-V4
+│
+└── Adaptive test-time compute controller
+```
+
+This roadmap is provisional.
+
+Later versions should be determined by experimental results rather than predetermined feature expansion.
+
+---
+
+# What Would Falsify APS?
+
+APS is not designed around the assumption that adaptive standards must work.
+
+Evidence against the proposed mechanism would include:
+
+- no meaningful behavioral difference from static thresholds;
+- negligible quality improvement;
+- disproportionately higher computational cost;
+- unstable standard dynamics;
+- persistent miscalibration;
+- excessive budget exhaustion;
+- poor behavior under distribution shift;
+- evaluator gaming;
+- inability to generalize beyond narrow task distributions.
+
+A negative result is still useful if the experiment identifies why the mechanism fails.
+
+---
+
+# APS-V0 Success Criteria
+
+APS-V0 is successful if the system demonstrates that:
+
+1. the objective remains fixed throughout execution;
+2. the performance standard exists as explicit runtime state;
+3. validated outcomes can update the adaptive standard;
+4. the updated standard changes future acceptance or retry decisions;
+5. static and adaptive agents can be compared under controlled conditions;
+6. quality and computational cost can both be measured;
+7. runtime decisions can be audited;
+8. resource and security constraints dominate the adaptive mechanism.
+
+APS-V0 does **not** require:
+
+```text
+Adaptive Agent > Static Agent
+```
+
+The first question is more fundamental:
+
+> **Does the mechanism create a measurable and controllable behavioral difference?**
+
+---
+
+# Non-Goals
+
+APS is not currently intended to implement:
+
+- autonomous goal generation;
+- unrestricted self-modification;
+- model-weight modification;
+- reinforcement-learning training;
+- unconstrained long-term autonomy;
+- self-assigned permissions;
+- self-expanded resource budgets;
+- arbitrary multi-agent coordination.
+
+The research target remains narrow:
+
+$$
 \boxed{
 \text{Outcome}
 \rightarrow
 \text{Evaluation}
 \rightarrow
-\text{Adaptive Standard}
+\text{Performance Standard}
 \rightarrow
-\text{Changed Execution Decision}
+\text{Execution Decision}
 }
-\]
+$$
 
-under fixed objective and authority constraints.
-
----
-
-## 19. Limitations and Open Questions
-
-Several limitations are known before implementation.
-
-### Historical Performance Is Not General Capability
-
-A high score on one task does not establish equivalent capability on another.
-
-Therefore:
-
-\[
-\max(Q_1,\ldots,Q_t)
-\]
-
-must not automatically be interpreted as a general capability estimate.
-
-Initial experiments will use controlled task distributions before investigating task-conditioned standards.
-
-### Monotonic Standards May Become Miscalibrated
-
-The initial update rule cannot decrease `σ`.
-
-Distribution shift may therefore create unrealistic standards and excessive retry behavior.
-
-This is an intentional experimental condition rather than a hidden assumption.
-
-### Evaluation Quality Bounds the Controller
-
-The standard controller can only be as meaningful as `Q`.
-
-If the evaluator is noisy, manipulable, or poorly aligned with actual task quality, adaptation may optimize the wrong signal.
-
-### Higher Quality May Not Justify Higher Cost
-
-An adaptive system may achieve stronger outcomes while consuming disproportionately more computation.
-
-APS therefore treats quality and compute jointly.
+under externally fixed objective, authority, and resource constraints.
 
 ---
 
-## 20. What Would Falsify the Hypothesis?
+# Current Status
 
-APS should not be constructed so that every outcome can be interpreted as success.
+**Status: Pre-implementation / architecture validation**
 
-Evidence against the usefulness of the mechanism would include:
+Current work focuses on:
 
-- no meaningful behavioral difference from a static controller,
-- increased computation without meaningful quality improvement,
-- persistent threshold miscalibration,
-- unstable or pathological retry behavior,
-- poor generalization across task distributions,
-- sensitivity so high that practical parameterization becomes unreliable.
+- formalizing the research hypothesis;
+- defining experimental controls;
+- specifying runtime invariants;
+- defining trust boundaries;
+- constructing the initial threat model;
+- designing the trusted execution architecture.
 
-Negative results are part of the research objective.
-
----
-
-## 21. V0 Success Criteria
-
-V0 succeeds as an experimental system if it demonstrates that:
-
-1. the objective remains fixed during execution;
-2. the performance standard is explicit and inspectable;
-3. measured outcomes can update the adaptive standard;
-4. the standard affects subsequent stopping decisions;
-5. static and adaptive controllers can be compared under controlled conditions;
-6. computational expenditure can be measured;
-7. runtime decisions are auditable;
-8. security and resource constraints cannot be overridden by the adaptive mechanism.
-
-V0 does **not** require the adaptive controller to outperform the static controller.
+No empirical claims about APS performance are currently made.
 
 ---
 
-## 22. Research Direction
+# Research Aim
 
-If the initial mechanism produces meaningful behavior, subsequent work may investigate:
+APS ultimately investigates two connected questions.
 
-```text
-V0
-Global adaptive standard
-        ↓
-V1
-Windowed / decaying standards
-        ↓
-V2
-Task-conditioned standards
-        ↓
-V3
-Uncertainty-aware capability estimation
-        ↓
-V4
-Adaptive test-time compute control
-```
+### Agent Systems
 
-A parallel security track may investigate stronger isolation, evaluator integrity, capability-based tool access, adversarial task inputs, and tamper-evident execution traces.
+> Can demonstrated performance be transformed into a useful control signal for dynamically allocating test-time computation?
 
-These directions are hypotheses and planned experiments, not implemented features.
+### AI Security
 
----
+> Can an AI system safely adapt its execution behavior while its objective, authority, security policy, and resource boundaries remain externally constrained?
 
-## 23. Current Status
+Together, these define the central APS principle:
 
-**Status: Architecture and experimental-design phase.**
-
-The project is intentionally documenting its research assumptions, security invariants, threat boundaries, and experimental controls before implementing the runtime.
-
-No empirical performance claims are currently made.
-
----
-
-## 24. Core Principle
-
-APS is built around one constraint:
-
-\[
+$$
 \boxed{
-\text{The system may adapt how well it expects to perform,
-but not what it is trying to achieve or what it is allowed to do.}
+\text{Adaptive Execution}
+\quad+\quad
+\text{Fixed Objective}
+\quad+\quad
+\text{Constrained Authority}
 }
-\]
+$$
 
-The purpose of the project is to determine whether that distinction can form a useful basis for adaptive, measurable, and securely constrained AI-agent execution.
+The system may adapt **how well it requires itself to perform**.
+
+It may not independently adapt **what it is trying to achieve or what it is allowed to do**.
