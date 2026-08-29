@@ -1,21 +1,21 @@
-# PS — Adaptive Performance Standard
+# APS — Adaptive Performance Standard Agent
 
 > A secure AI execution runtime for investigating adaptive performance standards under fixed objectives and constrained authority.
 
-PS is a research-oriented AI systems project investigating whether an AI agent can use evidence from its own demonstrated performance to adapt the quality threshold governing future execution decisions—without modifying its objective, permissions, or security constraints.
+APS is a research-oriented AI systems project investigating whether an AI agent can use evidence from its own demonstrated performance to adapt the quality threshold governing future execution decisions—without modifying its objective, permissions, or security constraints.
 
 The project studies a distinction between:
 
 - **what an agent is required to accomplish**, and
 - **what level of execution quality the agent considers sufficient**.
 
-PS treats the first as externally defined and immutable during an execution, while allowing the second to adapt from measured outcomes.
+APS treats the first as externally defined and immutable during an execution, while allowing the second to adapt from measured outcomes.
 
 The initial research question is:
 
 > **Can demonstrated performance provide a useful control signal for adapting an AI agent's acceptance threshold and test-time computation while its objective and authority remain fixed?**
 
-PS is being developed as both an experimental platform for this question and a secure runtime architecture for studying bounded adaptation in AI agents.
+APS is being developed as both an experimental platform for this question and a secure runtime architecture for studying bounded adaptation in AI agents.
 
 ---
 
@@ -59,13 +59,13 @@ This raises a systems question:
 
 > Should demonstrated performance influence the level of performance an agent subsequently requires before terminating computation?
 
-PS investigates this question by introducing an explicit **performance standard** into the agent execution loop.
+APS investigates this question by introducing an explicit **performance standard** into the agent execution loop.
 
 ---
 
 ## 2. Objective vs. Performance Standard
 
-The central architectural distinction in PS is between an agent's **objective** and its **performance standard**.
+The central architectural distinction in APS is between an agent's **objective** and its **performance standard**.
 
 Let
 
@@ -75,7 +75,7 @@ J
 
 denote the externally specified objective.
 
-For a given execution, PS requires:
+For a given execution, APS requires:
 
 \[
 J_{t+1}=J_t
@@ -127,7 +127,7 @@ A changing performance standard MUST NOT imply a changing objective.
 
 ## 3. Research Hypothesis
 
-PS investigates the following hypothesis:
+APS investigates the following hypothesis:
 
 > An agent's demonstrated performance can be used to adapt its future acceptance threshold, producing measurable changes in stopping behavior, outcome quality, and computational expenditure without modifying the underlying objective.
 
@@ -161,7 +161,7 @@ where:
 
 The hypothesis is deliberately falsifiable.
 
-PS does **not** assume that an adaptive standard will outperform a static standard.
+APS does **not** assume that an adaptive standard will outperform a static standard.
 
 The adaptive mechanism may improve outcome quality, waste computation, become poorly calibrated, fail under distribution shift, or produce no meaningful advantage.
 
@@ -219,7 +219,7 @@ for the initial controller.
 
 This rule is a **baseline mechanism**, not a claim of optimality.
 
-One purpose of PS is to determine where this simple formulation fails.
+One purpose of APS is to determine where this simple formulation fails.
 
 Potential later controllers may investigate:
 
@@ -238,7 +238,7 @@ These mechanisms are outside the initial experiment.
 
 Tracking `σ` without allowing it to affect execution would not constitute adaptation.
 
-PS therefore uses the performance standard as an explicit stopping-control signal.
+APS therefore uses the performance standard as an explicit stopping-control signal.
 
 ```text
 Generate candidate
@@ -270,7 +270,7 @@ This exposes a quality–compute tradeoff:
 f(\sigma,\text{Execution Budget},\text{Task})
 \]
 
-PS studies that tradeoff rather than assuming that higher standards are intrinsically better.
+APS studies that tradeoff rather than assuming that higher standards are intrinsically better.
 
 ---
 
@@ -420,7 +420,7 @@ The primary analysis is expected to examine the **quality–compute frontier**, 
 
 # Secure Runtime Architecture
 
-PS is not intended to rely on prompt instructions as its security boundary.
+APS is not intended to rely on prompt instructions as its security boundary.
 
 The system is designed around a separate trusted runtime responsible for enforcing objectives, authority, resource limits, state transitions, and adaptive-standard constraints.
 
@@ -472,7 +472,7 @@ Language choice is architectural rather than cosmetic.
 
 Python is used where research iteration and ML ecosystem integration are valuable.
 
-Rust is intended for security-sensitive control logic because PS requires strong state, authority, and memory-safety guarantees.
+Rust is intended for security-sensitive control logic because APS requires strong state, authority, and memory-safety guarantees.
 
 C++ is reserved for native or performance-sensitive components where its ecosystem or systems-level interoperability provides a concrete advantage. Security-sensitive functionality is not moved into C++ merely for implementation complexity.
 
@@ -480,7 +480,7 @@ C++ is reserved for native or performance-sensitive components where its ecosyst
 
 ## 9. Security Model
 
-PS begins from a simple assumption:
+APS begins from a simple assumption:
 
 > **Model output is untrusted data, not runtime authority.**
 
@@ -553,7 +553,7 @@ Untrusted content must not directly control privileged runtime state.
 
 ## 11. Security Invariants
 
-PS is designed around explicit invariants.
+APS is designed around explicit invariants.
 
 ### Invariant 1 — Objective Integrity
 
@@ -656,7 +656,7 @@ to correspond to a runtime invariant rather than an instruction given to the lan
 
 Security and experimental reproducibility both require observable state transitions.
 
-PS therefore intends to expose structured execution events such as:
+APS therefore intends to expose structured execution events such as:
 
 ```text
 RunStarted
@@ -732,7 +732,7 @@ These threats will be refined as implementation exposes concrete attack surfaces
 
 ## 15. System Philosophy
 
-PS intentionally separates adaptation from authority.
+APS intentionally separates adaptation from authority.
 
 The system may adapt:
 
@@ -783,7 +783,7 @@ The desired property is bounded adaptation:
 The target repository structure is:
 
 ```text
-PS/
+APS/
 │
 ├── runtime/                 # trusted Rust control plane
 │
@@ -820,7 +820,7 @@ The repository will be developed incrementally. This structure represents archit
 
 ## 17. Development Strategy
 
-PS follows a vertical-slice development strategy.
+APS follows a vertical-slice development strategy.
 
 The first useful system should establish:
 
@@ -864,7 +864,7 @@ The initial system does not attempt to implement:
 - self-assigned permissions,
 - self-expanded execution budgets.
 
-PS studies a much narrower mechanism:
+APS studies a much narrower mechanism:
 
 \[
 \boxed{
@@ -918,13 +918,13 @@ If the evaluator is noisy, manipulable, or poorly aligned with actual task quali
 
 An adaptive system may achieve stronger outcomes while consuming disproportionately more computation.
 
-PS therefore treats quality and compute jointly.
+APS therefore treats quality and compute jointly.
 
 ---
 
 ## 20. What Would Falsify the Hypothesis?
 
-PS should not be constructed so that every outcome can be interpreted as success.
+APS should not be constructed so that every outcome can be interpreted as success.
 
 Evidence against the usefulness of the mechanism would include:
 
@@ -995,7 +995,7 @@ No empirical performance claims are currently made.
 
 ## 24. Core Principle
 
-PS is built around one constraint:
+APS is built around one constraint:
 
 \[
 \boxed{
